@@ -1,0 +1,151 @@
+import express from "express";
+import bcrypt from "bcrypt";
+import { pool } from "../db/pool.js";
+import { hashDigitalIdRecord } from "../utils/hash.js";
+
+export const touristsRouter = express.Router();
+
+/**
+ * POST /api/tourists/register
+ *
+ * What this does, step by step:
+ * 1. Scramble the password (never store plain-text passwords).
+ * 2. Save the tourist's profile in the `tourists` table.
+ * 3. Build a "digital ID record" from their trip details.
+ * 4. Fingerprint that record with SHA-256.
+ * 5. Save both the record and its fingerprint in `digital_ids`.
+ */
+touristsRouter.post("/register", async (req, res) => {
+  const {
+    fullName,
+    passportOrIdNumber,
+    nationality,
+    phoneNumber,
+    email,
+    password,
+    emergencyContactName,
+    emergencyContactPhone,
+    tripStartDate,
+    tripEndDate,
+    itinerarySummary,
+  } = req.body;
+
+  if (!fullName || !passportOrIdNumber || !email || !password) {
+    return res.status(400).json({
+      error: "fullName, passportOrIdNumber, email, and password are required",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    // A "transaction" = run these writes as one all-or-nothing unit.
+    // If step 4 fails, step 3's changes get undone automatically.
+    await client.query("BEGIN");
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const touristResult = await client.query(
+      `INSERT INTO tourists
+        (full_name, passport_or_id_number, nationality, phone_number, email,
+         password_hash, emergency_contact_name, emergency_contact_phone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, full_name, email, created_at`,
+      [
+        fullName,
+        passportOrIdNumber,
+        nationality,
+        phoneNumber,
+        email,
+        passwordHash,
+        emergencyContactName,
+        emergencyContactPhone,
+      ]
+    );
+    const tourist = touristResult.rows[0];
+
+    const digitalIdRecord = {
+      touristId: tourist.id,
+      fullName,
+      passportOrIdNumber,
+      nationality,
+      tripStartDate,
+      tripEndDate,
+      itinerarySummary,
+    };
+
+    const recordHash = hashDigitalIdRecord(digitalIdRecord);
+
+    const digitalIdResult = await client.query(
+      `INSERT INTO digital_ids
+        (tourist_id, trip_start_date, trip_end_date, itinerary_summary, record_hash)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, record_hash, created_at`,
+      [tourist.id, tripStartDate, tripEndDate, itinerarySummary, recordHash]
+    );
+    const digitalId = digitalIdResult.rows[0];
+
+    await client.query("COMMIT");
+
+    res.status(201).json({
+      message: "Tourist registered and digital ID created",
+      tourist: { id: tourist.id, fullName: tourist.full_name, email: tourist.email },
+      digitalId: {
+        id: digitalId.id,
+        recordHash: digitalId.record_hash,
+        blockchainStatus: "pending",
+      },
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Registration failed:", err);
+
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+    res.status(500).json({ error: "Something went wrong during registration" });
+  } finally {
+    client.release(); // always give the connection back to the pool
+  }
+});
+
+/**
+ * GET /api/tourists/:id/verify
+ *
+ * Re-computes the hash from the stored record and compares it to the
+ * saved record_hash. If they match, nothing was tampered with. This
+ * is the core verification concept — same idea blockchain uses.
+ */
+touristsRouter.get("/:id/verify", async (req, res) => {
+  const { id } = req.params;
+
+  const result = await pool.query(
+    `SELECT d.*, t.full_name, t.passport_or_id_number, t.nationality
+     FROM digital_ids d
+     JOIN tourists t ON t.id = d.tourist_id
+     WHERE d.tourist_id = $1
+     ORDER BY d.created_at DESC
+     LIMIT 1`,
+    [id]
+  );
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "No digital ID found for this tourist" });
+  }
+
+  const row = result.rows[0];
+
+  const recomputedHash = hashDigitalIdRecord({
+    touristId: row.tourist_id,
+    fullName: row.full_name,
+    passportOrIdNumber: row.passport_or_id_number,
+    nationality: row.nationality,
+    tripStartDate: row.trip_start_date,
+    tripEndDate: row.trip_end_date,
+    itinerarySummary: row.itinerary_summary,
+  });
+
+  const isValid = recomputedHash === row.record_hash;
+
+  res.json({ isValid, storedHash: row.record_hash, recomputedHash });
+});
