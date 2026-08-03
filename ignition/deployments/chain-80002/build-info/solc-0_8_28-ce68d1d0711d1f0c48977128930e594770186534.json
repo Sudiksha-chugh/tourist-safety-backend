@@ -1,0 +1,49 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-ce68d1d0711d1f0c48977128930e594770186534",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "compilerType": "solc",
+  "toolVersions": {
+    "hardhat": "3.12.0"
+  },
+  "userSourceNameMap": {
+    "contracts/DigitalIdRegistry.sol": "project/contracts/DigitalIdRegistry.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/DigitalIdRegistry.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.28;\n\n/**\n * @title DigitalIdRegistry\n * @notice Stores a tamper-evident fingerprint (hash) for each tourist's\n *         digital ID record. The actual personal data never touches this\n *         contract — only the hash does. Anyone can verify a hash;\n *         nobody (not even the contract owner) can alter one once stored.\n */\ncontract DigitalIdRegistry {\n    // Maps a tourist's ID (as a string, e.g. their UUID from our database)\n    // to the hash we computed for their digital ID record.\n    mapping(string => string) private touristIdToHash;\n\n    // Tracks whether a tourist ID has already been registered,\n    // so we can prevent silently overwriting an existing hash.\n    mapping(string => bool) private isRegistered;\n\n    // An \"event\" is how a smart contract announces that something\n    // happened. Anyone watching the blockchain (like our backend, or a\n    // block explorer) can see this without having to constantly ask\n    // the contract \"did anything change?\"\n    event HashStored(string touristId, string recordHash, uint256 timestamp);\n\n    /**\n     * @notice Store a hash for a tourist ID. Can only be called once per\n     *         tourist ID — this contract deliberately does not allow\n     *         updates, because allowing silent overwrites would defeat\n     *         the whole point of tamper-evidence.\n     */\n    function storeHash(string memory touristId, string memory recordHash) public {\n        require(!isRegistered[touristId], \"Hash already stored for this tourist ID\");\n\n        touristIdToHash[touristId] = recordHash;\n        isRegistered[touristId] = true;\n\n        emit HashStored(touristId, recordHash, block.timestamp);\n    }\n\n    /**\n     * @notice Look up the stored hash for a tourist ID.\n     *         \"view\" means this function only reads data — it doesn't\n     *         cost any gas to call, because it doesn't change anything\n     *         on the blockchain.\n     */\n    function getHash(string memory touristId) public view returns (string memory) {\n        require(isRegistered[touristId], \"No hash stored for this tourist ID\");\n        return touristIdToHash[touristId];\n    }\n}"
+      }
+    }
+  }
+}
