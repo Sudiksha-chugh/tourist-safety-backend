@@ -2,6 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { pool } from "../db/pool.js";
 import { hashDigitalIdRecord } from "../utils/hash.js";
+import { storeHashOnChain } from "../blockchain/storeHash.js";
 
 export const touristsRouter = express.Router();
 
@@ -84,18 +85,34 @@ touristsRouter.post("/register", async (req, res) => {
       [tourist.id, tripStartDate, tripEndDate, itinerarySummary, recordHash]
     );
     const digitalId = digitalIdResult.rows[0];
+    // Publish the hash to the blockchain BEFORE committing our database
+    // transaction. If this fails, we roll back the whole registration —
+    // we don't want a database record claiming "blockchain: pending"
+    // forever with no way to retry cleanly.
+    const blockchainTxHash = await storeHashOnChain(tourist.id, recordHash);
+
+    await client.query(
+      `UPDATE digital_ids SET blockchain_tx_hash = $1 WHERE id = $2`,
+      [blockchainTxHash, digitalId.id]
+    );
 
     await client.query("COMMIT");
 
     res.status(201).json({
       message: "Tourist registered and digital ID created",
-      tourist: { id: tourist.id, fullName: tourist.full_name, email: tourist.email },
+      tourist: {
+        id: tourist.id,
+        fullName: tourist.full_name,
+        email: tourist.email,
+      },
       digitalId: {
         id: digitalId.id,
         recordHash: digitalId.record_hash,
-        blockchainStatus: "pending",
+        blockchainStatus: "confirmed",
+        blockchainTxHash,
       },
-    });
+    }); 
+    
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("Registration failed:", err);
