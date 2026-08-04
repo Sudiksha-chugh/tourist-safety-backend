@@ -21,28 +21,18 @@ locationsRouter.post("/ping", async (req, res) => {
   }
 
   try {
-    // 1. Save the raw ping — we keep a full location history,
-    //    useful later for route-deviation checks and investigations.
     await pool.query(
       `INSERT INTO location_pings (tourist_id, latitude, longitude)
        VALUES ($1, $2, $3)`,
       [touristId, latitude, longitude]
     );
 
-    // 2. Load all known zones. For an MVP with a handful of zones,
-    //    checking against all of them on every ping is fine — if this
-    //    were thousands of zones, we'd want a smarter spatial lookup
-    //    (that's what PostGIS is for), but that's a later optimization.
     const zonesResult = await pool.query(
       `SELECT id, name, risk_level, boundary_geojson FROM geofence_zones`
     );
 
     const breachedZones = findBreachedZones(latitude, longitude, zonesResult.rows);
 
-    // 3. If the point falls inside any zone, create an alert — but only
-    //    if there isn't already an OPEN alert for this exact tourist +
-    //    zone combination. This is the "debounce" that prevents alert
-    //    fatigue from repeated pings inside the same zone.
     const createdAlerts = [];
     for (const zone of breachedZones) {
       const existingAlert = await pool.query(
@@ -53,7 +43,6 @@ locationsRouter.post("/ping", async (req, res) => {
       );
 
       if (existingAlert.rows.length > 0) {
-        // Already have an open alert for this — don't create a duplicate.
         continue;
       }
 
@@ -75,7 +64,9 @@ locationsRouter.post("/ping", async (req, res) => {
     console.error("Location ping failed:", err);
     res.status(500).json({ error: "Something went wrong recording the location" });
   }
-  /**
+});
+
+/**
  * PATCH /api/locations/alerts/:id/resolve
  * Marks an alert as resolved — a control room operator would call
  * this once they've handled the situation. Once resolved, a future
@@ -96,4 +87,44 @@ locationsRouter.patch("/alerts/:id/resolve", async (req, res) => {
 
   res.json({ message: "Alert resolved", alert: result.rows[0] });
 });
+
+/**
+ * POST /api/locations/sos
+ * The tourist app calls this when the user presses the SOS button.
+ * Unlike geofence alerts, we never suppress these — every press
+ * matters, and control room operators should see each one.
+ *
+ * Body: { touristId, latitude, longitude }
+ */
+locationsRouter.post("/sos", async (req, res) => {
+  const { touristId, latitude, longitude } = req.body;
+
+  if (!touristId || latitude === undefined || longitude === undefined) {
+    return res.status(400).json({
+      error: "touristId, latitude, and longitude are required",
+    });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO location_pings (tourist_id, latitude, longitude)
+       VALUES ($1, $2, $3)`,
+      [touristId, latitude, longitude]
+    );
+
+    const alertResult = await pool.query(
+      `INSERT INTO alerts (tourist_id, alert_type, status, details)
+       VALUES ($1, 'sos', 'open', $2)
+       RETURNING id, alert_type, status, details, created_at`,
+      [touristId, `SOS triggered at (${latitude}, ${longitude})`]
+    );
+
+    res.status(201).json({
+      message: "SOS alert created",
+      alert: alertResult.rows[0],
+    });
+  } catch (err) {
+    console.error("SOS creation failed:", err);
+    res.status(500).json({ error: "Something went wrong creating the SOS alert" });
+  }
 });
