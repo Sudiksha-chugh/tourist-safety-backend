@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { pool } from "../db/pool.js";
 import { hashDigitalIdRecord } from "../utils/hash.js";
 import { storeHashOnChain, getHashFromChain } from "../blockchain/storeHash.js";
+import { computeRiskScore } from "../utils/riskScore.js";
 
 export const touristsRouter = express.Router();
 
@@ -172,7 +173,6 @@ touristsRouter.get("/:id/verify", async (req, res) => {
   } catch (err) {
     console.error("Blockchain lookup failed:", err.message);
   }
-
   res.json({
     isValid: matchesDatabase && matchesBlockchain,
     matchesDatabase,
@@ -181,4 +181,29 @@ touristsRouter.get("/:id/verify", async (req, res) => {
     storedHashInDatabase: row.record_hash,
     storedHashOnChain: onChainHash,
   });
+});
+
+/**
+ * GET /api/tourists/:id/risk-score
+ * Computes a live risk score from the tourist's currently open alerts
+ * and the current time of day.
+ */
+touristsRouter.get("/:id/risk-score", async (req, res) => {
+  const { id } = req.params;
+
+  const result = await pool.query(
+    `SELECT a.alert_type, a.status, z.risk_level
+     FROM alerts a
+     LEFT JOIN geofence_zones z ON z.id = a.zone_id
+     WHERE a.tourist_id = $1 AND a.status = 'open'`,
+    [id]
+  );
+
+  const currentHour = new Date().getHours();
+  const { score, level, reasons } = computeRiskScore({
+    openAlerts: result.rows,
+    currentHour,
+  });
+
+  res.json({ touristId: id, score, level, reasons });
 });
