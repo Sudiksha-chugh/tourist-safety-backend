@@ -2,7 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { pool } from "../db/pool.js";
 import { hashDigitalIdRecord } from "../utils/hash.js";
-import { storeHashOnChain } from "../blockchain/storeHash.js";
+import { storeHashOnChain, getHashFromChain } from "../blockchain/storeHash.js";
 
 export const touristsRouter = express.Router();
 
@@ -162,7 +162,23 @@ touristsRouter.get("/:id/verify", async (req, res) => {
     itinerarySummary: row.itinerary_summary,
   });
 
-  const isValid = recomputedHash === row.record_hash;
+  const matchesDatabase = recomputedHash === row.record_hash;
 
-  res.json({ isValid, storedHash: row.record_hash, recomputedHash });
+  let matchesBlockchain = false;
+  let onChainHash = null;
+  try {
+    onChainHash = await getHashFromChain(row.tourist_id);
+    matchesBlockchain = recomputedHash === onChainHash;
+  } catch (err) {
+    console.error("Blockchain lookup failed:", err.message);
+  }
+
+  res.json({
+    isValid: matchesDatabase && matchesBlockchain,
+    matchesDatabase,
+    matchesBlockchain,
+    recomputedHash,
+    storedHashInDatabase: row.record_hash,
+    storedHashOnChain: onChainHash,
+  });
 });

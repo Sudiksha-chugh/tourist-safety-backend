@@ -10,8 +10,6 @@ import { contractAbi, contractAddress, walletClient, publicClient } from "./clie
  * @returns {Promise<string>} the on-chain transaction hash
  */
 export async function storeHashOnChain(touristId, recordHash) {
-  // writeContract() builds the transaction, signs it with our wallet's
-  // private key, and sends it to the network. This costs gas.
   const txHash = await walletClient.writeContract({
     address: contractAddress,
     abi: contractAbi,
@@ -19,10 +17,6 @@ export async function storeHashOnChain(touristId, recordHash) {
     args: [touristId, recordHash],
   });
 
-  // At this point, the transaction has been SENT but not necessarily
-  // MINED yet (blockchains take a few seconds to confirm). We wait
-  // for a receipt so we know it actually succeeded before telling
-  // our own database it's done.
   const receipt = await publicClient.waitForTransactionReceipt({
     hash: txHash,
   });
@@ -32,4 +26,18 @@ export async function storeHashOnChain(touristId, recordHash) {
   }
 
   return txHash;
+}
+
+/**
+ * Reads the hash stored on-chain for a given tourist ID.
+ * This is a read-only call — free, no gas needed, no wallet required.
+ */
+export async function getHashFromChain(touristId) {
+  const hash = await publicClient.readContract({
+    address: contractAddress,
+    abi: contractAbi,
+    functionName: "getHash",
+    args: [touristId],
+  });
+  return hash;
 }
