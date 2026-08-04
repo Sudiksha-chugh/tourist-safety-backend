@@ -207,3 +207,39 @@ touristsRouter.get("/:id/risk-score", async (req, res) => {
 
   res.json({ touristId: id, score, level, reasons });
 });
+  /**
+ * GET /api/tourists
+ * Lists all tourists with their current risk score — the dashboard
+ * uses this to show a prioritized view, not just a raw alert feed.
+ */
+touristsRouter.get("/", async (req, res) => {
+  const touristsResult = await pool.query(
+    `SELECT id, full_name, email, created_at FROM tourists ORDER BY created_at DESC`
+  );
+
+  // For each tourist, compute their live risk score. Doing this in a
+  // loop with individual queries is fine for a handful of tourists in
+  // an MVP; a production version with thousands would want a single
+  // smarter query instead — a "good enough for now" tradeoff, same
+  // spirit as our earlier ones.
+  const touristsWithRisk = await Promise.all(
+    touristsResult.rows.map(async (tourist) => {
+      const alertsResult = await pool.query(
+        `SELECT a.alert_type, a.status, z.risk_level
+         FROM alerts a
+         LEFT JOIN geofence_zones z ON z.id = a.zone_id
+         WHERE a.tourist_id = $1 AND a.status = 'open'`,
+        [tourist.id]
+      );
+
+      const { score, level } = computeRiskScore({
+        openAlerts: alertsResult.rows,
+        currentHour: new Date().getHours(),
+      });
+
+      return { ...tourist, riskScore: score, riskLevel: level };
+    })
+  );
+
+  res.json({ tourists: touristsWithRisk });
+});
