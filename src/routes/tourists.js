@@ -4,6 +4,7 @@ import { pool } from "../db/pool.js";
 import { hashDigitalIdRecord } from "../utils/hash.js";
 import { storeHashOnChain, getHashFromChain } from "../blockchain/storeHash.js";
 import { computeRiskScore } from "../utils/riskScore.js";
+import jwt from "jsonwebtoken";
 
 export const touristsRouter = express.Router();
 
@@ -242,4 +243,50 @@ touristsRouter.get("/", async (req, res) => {
   );
 
   res.json({ tourists: touristsWithRisk });
+});
+/**
+ * POST /api/tourists/login
+ * Verifies email + password, returns a signed JWT if correct.
+ *
+ * Body: { email, password }
+ */
+touristsRouter.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "email and password are required" });
+  }
+
+  const result = await pool.query(
+    `SELECT id, full_name, email, password_hash FROM tourists WHERE email = $1`,
+    [email]
+  );
+
+  if (result.rows.length === 0) {
+    // Deliberately vague — "email not found" vs "wrong password" would
+    // let an attacker discover which emails are registered.
+    return res.status(401).json({ error: "Invalid email or password" });
+  }
+
+  const tourist = result.rows[0];
+  const passwordMatches = await bcrypt.compare(password, tourist.password_hash);
+
+  if (!passwordMatches) {
+    return res.status(401).json({ error: "Invalid email or password" });
+  }
+
+  // The token's "payload" — data embedded in it. Keep this minimal;
+  // never put passwords or sensitive data here, since it's readable
+  // (not encrypted) by anyone who has the token.
+  const token = jwt.sign(
+    { touristId: tourist.id, email: tourist.email },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" } // token stops working after 7 days, forcing re-login
+  );
+
+  res.json({
+    message: "Login successful",
+    token,
+    tourist: { id: tourist.id, fullName: tourist.full_name, email: tourist.email },
+  });
 });
