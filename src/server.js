@@ -3,13 +3,16 @@ import dotenv from "dotenv";
 import { touristsRouter } from "./routes/tourists.js";
 import { zonesRouter } from "./routes/zones.js";
 import { locationsRouter } from "./routes/locations.js";
-
+import { alertsRouter } from "./routes/alerts.js";
+import cors from "cors";
 dotenv.config();
 
 const app = express();
+app.use(cors());
 
 // Lets Express understand JSON sent in request bodies
 app.use(express.json());
+app.use("/api/alerts", alertsRouter);
 
 app.use("/api/zones", zonesRouter);
 
