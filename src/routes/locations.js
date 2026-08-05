@@ -1,6 +1,7 @@
 import express from "express";
 import { pool } from "../db/pool.js";
 import { findBreachedZones } from "../utils/geofence.js";
+import { requireAuth } from "../middleware/auth.js";
 
 export const locationsRouter = express.Router();
 
@@ -11,9 +12,9 @@ export const locationsRouter = express.Router();
  *
  * Body: { touristId, latitude, longitude }
  */
-locationsRouter.post("/ping", async (req, res) => {
-  const { touristId, latitude, longitude } = req.body;
-
+locationsRouter.post("/ping", requireAuth, async (req, res) => {
+  const touristId = req.touristId; // trust the token, not the request body
+  const { latitude, longitude } = req.body;
   if (!touristId || latitude === undefined || longitude === undefined) {
     return res.status(400).json({
       error: "touristId, latitude, and longitude are required",
@@ -96,9 +97,9 @@ locationsRouter.patch("/alerts/:id/resolve", async (req, res) => {
  *
  * Body: { touristId, latitude, longitude }
  */
-locationsRouter.post("/sos", async (req, res) => {
-  const { touristId, latitude, longitude } = req.body;
-
+locationsRouter.post("/sos", requireAuth, async (req, res) => {
+  const touristId = req.touristId;
+  const { latitude, longitude } = req.body;
   if (!touristId || latitude === undefined || longitude === undefined) {
     return res.status(400).json({
       error: "touristId, latitude, and longitude are required",

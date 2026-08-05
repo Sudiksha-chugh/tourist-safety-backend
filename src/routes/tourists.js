@@ -5,6 +5,7 @@ import { hashDigitalIdRecord } from "../utils/hash.js";
 import { storeHashOnChain, getHashFromChain } from "../blockchain/storeHash.js";
 import { computeRiskScore } from "../utils/riskScore.js";
 import jwt from "jsonwebtoken";
+import { requireAuth } from "../middleware/auth.js";
 
 export const touristsRouter = express.Router();
 
@@ -189,7 +190,7 @@ touristsRouter.get("/:id/verify", async (req, res) => {
  * Computes a live risk score from the tourist's currently open alerts
  * and the current time of day.
  */
-touristsRouter.get("/:id/risk-score", async (req, res) => {
+touristsRouter.get("/:id/risk-score", requireAuth, async (req, res) => {
   const { id } = req.params;
 
   const result = await pool.query(
