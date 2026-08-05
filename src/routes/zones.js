@@ -50,3 +50,33 @@ zonesRouter.get("/", async (req, res) => {
   );
   res.json({ zones: result.rows });
 });
+
+/**
+ * PATCH /api/zones/:id
+ * Updates an existing zone's boundary, name, or risk level.
+ */
+zonesRouter.patch("/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, riskLevel, boundaryGeojson } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE geofence_zones
+       SET name = COALESCE($1, name),
+           risk_level = COALESCE($2, risk_level),
+           boundary_geojson = COALESCE($3, boundary_geojson)
+       WHERE id = $4
+       RETURNING id, name, risk_level, created_at`,
+      [name, riskLevel, boundaryGeojson ? JSON.stringify(boundaryGeojson) : null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Zone not found" });
+    }
+
+    res.json({ zone: result.rows[0] });
+  } catch (err) {
+    console.error("Zone update failed:", err);
+    res.status(500).json({ error: "Something went wrong updating the zone" });
+  }
+});
