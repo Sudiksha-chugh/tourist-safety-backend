@@ -65,7 +65,7 @@ CREATE TABLE alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tourist_id UUID NOT NULL REFERENCES tourists(id) ON DELETE CASCADE,
     zone_id UUID REFERENCES geofence_zones(id),
-    alert_type TEXT NOT NULL CHECK (alert_type IN ('sos', 'geofence_breach', 'inactivity', 'risk_score')),
+    alert_type TEXT NOT NULL CHECK (alert_type IN ('sos', 'geofence_breach', 'inactivity', 'risk_score', 'route_deviation')),
     risk_score INTEGER,
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'acknowledged', 'resolved')),
     details TEXT,

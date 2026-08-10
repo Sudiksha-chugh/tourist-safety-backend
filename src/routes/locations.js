@@ -1,8 +1,7 @@
 import express from "express";
 import { pool } from "../db/pool.js";
-import { findBreachedZones } from "../utils/geofence.js";
 import { requireAuth } from "../middleware/auth.js";
-
+import { findBreachedZones, distanceFromRoute } from "../utils/geofence.js";
 export const locationsRouter = express.Router();
 
 /**
@@ -33,6 +32,26 @@ locationsRouter.post("/ping", requireAuth, async (req, res) => {
     );
 
     const breachedZones = findBreachedZones(latitude, longitude, zonesResult.rows);
+    
+    // Check for route deviation — how far is this ping from the
+    // tourist's planned path, if they've submitted one?
+    const routeResult = await pool.query(
+      `SELECT route_geojson FROM planned_routes
+       WHERE tourist_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [touristId]
+    );
+
+    const DEVIATION_THRESHOLD_METERS = 2000; // 2km off-route triggers an alert
+    let routeDeviationMeters = null;
+    let isOffRoute = false;
+
+    if (routeResult.rows.length > 0) {
+      const waypoints = routeResult.rows[0].route_geojson.coordinates;
+      routeDeviationMeters = distanceFromRoute(latitude, longitude, waypoints);
+      isOffRoute = routeDeviationMeters > DEVIATION_THRESHOLD_METERS;
+    }
 
     const createdAlerts = [];
     for (const zone of breachedZones) {
@@ -55,7 +74,27 @@ locationsRouter.post("/ping", requireAuth, async (req, res) => {
       );
       createdAlerts.push(alertResult.rows[0]);
     }
+    // If they've deviated significantly from their planned route,
+    // create an alert the same way we do for zone breaches — using
+    // the same open-alert dedupe pattern so we don't spam on every ping.
+    if (isOffRoute) {
+      const existingDeviationAlert = await pool.query(
+        `SELECT id FROM alerts
+         WHERE tourist_id = $1 AND alert_type = 'route_deviation' AND status = 'open'
+         LIMIT 1`,
+        [touristId]
+      );
 
+      if (existingDeviationAlert.rows.length === 0) {
+        const deviationAlertResult = await pool.query(
+          `INSERT INTO alerts (tourist_id, alert_type, status, details)
+           VALUES ($1, 'route_deviation', 'open', $2)
+           RETURNING id, alert_type, status, details, created_at`,
+          [touristId, `${Math.round(routeDeviationMeters)}m off planned route`]
+        );
+        createdAlerts.push(deviationAlertResult.rows[0]);
+      }
+    }
     res.status(201).json({
       message: "Location recorded",
       breachedZones: breachedZones.map((z) => ({ id: z.id, name: z.name, riskLevel: z.risk_level })),
