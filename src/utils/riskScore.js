@@ -5,7 +5,7 @@
  * scoring you can justify in a demo, upgradeable to a trained model
  * later once there's real incident data to learn from.
  */
-export function computeRiskScore({ openAlerts, currentHour }) {
+export function computeRiskScore({ openAlerts, currentHour, minutesSinceLastPing }) {
   // An open SOS alert means "in danger right now" — this should
   // dominate the score, not just nudge it.
   const hasSos = openAlerts.some((a) => a.alert_type === "sos");
@@ -13,8 +13,22 @@ export function computeRiskScore({ openAlerts, currentHour }) {
     return { score: 100, level: "critical", reasons: ["Active SOS alert"] };
   }
 
-  let score = 0;
+ let score = 0;
   const reasons = [];
+
+  // No location update in a while is itself a risk signal — could mean
+  // dead phone, lost signal, or an injury preventing them from moving.
+  // We only flag this if we actually have ping history; a brand-new
+  // tourist with no pings yet shouldn't be penalized for that.
+  if (minutesSinceLastPing !== null && minutesSinceLastPing !== undefined) {
+    if (minutesSinceLastPing > 120) {
+      score += 25;
+      reasons.push(`No location update in over 2 hours`);
+    } else if (minutesSinceLastPing > 45) {
+      score += 12;
+      reasons.push(`No location update in ${Math.round(minutesSinceLastPing)} minutes`);
+    }
+  }
 
   // Zone risk contributes points per open geofence breach, weighted
   // by how risky that specific zone is.

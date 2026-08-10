@@ -201,10 +201,26 @@ touristsRouter.get("/:id/risk-score", requireAuth, async (req, res) => {
     [id]
   );
 
+  // Find this tourist's most recent location ping, if any.
+  const lastPingResult = await pool.query(
+    `SELECT recorded_at FROM location_pings
+     WHERE tourist_id = $1
+     ORDER BY recorded_at DESC
+     LIMIT 1`,
+    [id]
+  );
+
+  let minutesSinceLastPing = null;
+  if (lastPingResult.rows.length > 0) {
+    const lastPingTime = new Date(lastPingResult.rows[0].recorded_at);
+    minutesSinceLastPing = (Date.now() - lastPingTime.getTime()) / 60000;
+  }
+
   const currentHour = new Date().getHours();
   const { score, level, reasons } = computeRiskScore({
     openAlerts: result.rows,
     currentHour,
+    minutesSinceLastPing,
   });
 
   res.json({ touristId: id, score, level, reasons });
@@ -234,9 +250,24 @@ touristsRouter.get("/", async (req, res) => {
         [tourist.id]
       );
 
+      const lastPingResult = await pool.query(
+        `SELECT recorded_at FROM location_pings
+         WHERE tourist_id = $1
+         ORDER BY recorded_at DESC
+         LIMIT 1`,
+        [tourist.id]
+      );
+
+      let minutesSinceLastPing = null;
+      if (lastPingResult.rows.length > 0) {
+        const lastPingTime = new Date(lastPingResult.rows[0].recorded_at);
+        minutesSinceLastPing = (Date.now() - lastPingTime.getTime()) / 60000;
+      }
+
       const { score, level } = computeRiskScore({
         openAlerts: alertsResult.rows,
         currentHour: new Date().getHours(),
+        minutesSinceLastPing,
       });
 
       return { ...tourist, riskScore: score, riskLevel: level };
@@ -245,6 +276,7 @@ touristsRouter.get("/", async (req, res) => {
 
   res.json({ tourists: touristsWithRisk });
 });
+
 /**
  * POST /api/tourists/login
  * Verifies email + password, returns a signed JWT if correct.
