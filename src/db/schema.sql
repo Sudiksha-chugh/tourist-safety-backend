@@ -71,3 +71,15 @@ CREATE TABLE alerts (
     details TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------
+-- PLANNED_ROUTES: the itinerary path a tourist intends to follow
+-- ---------------------------------------------------------
+CREATE TABLE planned_routes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tourist_id UUID NOT NULL REFERENCES tourists(id) ON DELETE CASCADE,
+    -- Stored as a GeoJSON LineString: an ordered list of [lng, lat]
+    -- points representing the intended path, e.g. Delhi -> Manali -> Leh
+    route_geojson JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -47,3 +47,46 @@ export function findBreachedZones(lat, lng, zones) {
     return isPointInPolygon(lat, lng, polygon);
   });
 }
+
+/**
+ * Calculates the real-world distance (in meters) between two GPS
+ * points using the Haversine formula — accounts for the Earth's
+ * curvature, unlike naive flat-plane distance math, which becomes
+ * inaccurate over any meaningful distance.
+ */
+export function haversineDistanceMeters(lat1, lng1, lat2, lng2) {
+  const EARTH_RADIUS_METERS = 6371000;
+
+  // Convert degrees to radians — trigonometric functions in JS
+  // (Math.sin, Math.cos) expect radians, not degrees.
+  const toRadians = (deg) => (deg * Math.PI) / 180;
+
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return EARTH_RADIUS_METERS * c;
+}
+
+/**
+ * Given a tourist's current position and their planned route (a list
+ * of [lng, lat] waypoints), finds the distance to the NEAREST point
+ * on that route. A large distance means they've likely gone off-path.
+ */
+export function distanceFromRoute(lat, lng, routeWaypoints) {
+  let minDistance = Infinity;
+
+  for (const [routeLng, routeLat] of routeWaypoints) {
+    const distance = haversineDistanceMeters(lat, lng, routeLat, routeLng);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+
+  return minDistance;
+}
