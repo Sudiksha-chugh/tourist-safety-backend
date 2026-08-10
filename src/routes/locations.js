@@ -129,3 +129,24 @@ locationsRouter.post("/sos", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Something went wrong creating the SOS alert" });
   }
 });
+/**
+ * GET /api/locations/latest
+ * Returns each tourist's most recent known location — the dashboard
+ * uses this to plot live position markers on the map.
+ */
+locationsRouter.get("/latest", async (req, res) => {
+  // DISTINCT ON (tourist_id) with this ORDER BY gives us exactly one
+  // row per tourist — their most recent ping. This is a Postgres-
+  // specific trick for "latest row per group," cleaner than a
+  // subquery for this case.
+  const result = await pool.query(
+    `SELECT DISTINCT ON (lp.tourist_id)
+       lp.tourist_id, lp.latitude, lp.longitude, lp.recorded_at,
+       t.full_name
+     FROM location_pings lp
+     JOIN tourists t ON t.id = lp.tourist_id
+     ORDER BY lp.tourist_id, lp.recorded_at DESC`
+  );
+
+  res.json({ locations: result.rows });
+});
