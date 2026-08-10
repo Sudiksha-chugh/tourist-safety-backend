@@ -39,6 +39,13 @@ export function computeRiskScore({ openAlerts, currentHour, minutesSinceLastPing
     score += weight;
     reasons.push(`In ${breach.risk_level}-risk zone`);
   }
+  // Route deviation is its own independent risk factor.
+  const deviations = openAlerts.filter((a) => a.alert_type === "route_deviation");
+  if (deviations.length > 0) {
+    score += 20;
+    reasons.push("Off planned route");
+  }
+  
 
   // Time-of-day risk: late night / pre-dawn hours add points.
   // currentHour is 0-23, in the tourist's local time.
