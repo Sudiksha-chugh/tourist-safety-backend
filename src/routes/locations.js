@@ -2,6 +2,7 @@ import express from "express";
 import { pool } from "../db/pool.js";
 import { requireAuth } from "../middleware/auth.js";
 import { findBreachedZones, distanceFromRoute } from "../utils/geofence.js";
+import { sendSms } from "../utils/sms.js";
 export const locationsRouter = express.Router();
 
 /**
@@ -159,9 +160,28 @@ locationsRouter.post("/sos", requireAuth, async (req, res) => {
       [touristId, `SOS triggered at (${latitude}, ${longitude})`]
     );
 
+    // Look up the tourist's emergency contact and notify them via SMS.
+    // We do this after the alert is safely saved, and we don't let
+    // SMS failure affect the response — the alert itself is what matters most.
+    const touristResult = await pool.query(
+      `SELECT full_name, emergency_contact_name, emergency_contact_phone
+       FROM tourists WHERE id = $1`,
+      [touristId]
+    );
+
+    let smsResult = { success: false, error: "No emergency contact on file" };
+    if (touristResult.rows.length > 0 && touristResult.rows[0].emergency_contact_phone) {
+      const tourist = touristResult.rows[0];
+      smsResult = await sendSms(
+        tourist.emergency_contact_phone,
+        `SAFETY ALERT: ${tourist.full_name} has triggered an SOS at location (${latitude}, ${longitude}). Please check on them immediately.`
+      );
+    }
+
     res.status(201).json({
       message: "SOS alert created",
       alert: alertResult.rows[0],
+      smsNotification: smsResult,
     });
   } catch (err) {
     console.error("SOS creation failed:", err);

@@ -6,7 +6,6 @@ import { storeHashOnChain, getHashFromChain } from "../blockchain/storeHash.js";
 import { computeRiskScore } from "../utils/riskScore.js";
 import jwt from "jsonwebtoken";
 import { requireAuth } from "../middleware/auth.js";
-
 export const touristsRouter = express.Router();
 
 /**
