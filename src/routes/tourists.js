@@ -6,6 +6,7 @@ import { computeRiskScore } from "../utils/riskScore.js";
 import jwt from "jsonwebtoken";
 import { requireAuth } from "../middleware/auth.js";
 import { hashDigitalIdRecord, generateShareToken } from "../utils/hash.js";
+import { getCurrentWeather, classifyWeatherRisk } from "../utils/weather.js";
 export const touristsRouter = express.Router();
 
 /**
@@ -202,7 +203,7 @@ touristsRouter.get("/:id/risk-score", requireAuth, async (req, res) => {
 
   // Find this tourist's most recent location ping, if any.
   const lastPingResult = await pool.query(
-    `SELECT recorded_at FROM location_pings
+    `SELECT latitude, longitude, recorded_at FROM location_pings
      WHERE tourist_id = $1
      ORDER BY recorded_at DESC
      LIMIT 1`,
@@ -210,9 +211,20 @@ touristsRouter.get("/:id/risk-score", requireAuth, async (req, res) => {
   );
 
   let minutesSinceLastPing = null;
+  let weatherRisk = null;
+
   if (lastPingResult.rows.length > 0) {
-    const lastPingTime = new Date(lastPingResult.rows[0].recorded_at);
+    const lastPing = lastPingResult.rows[0];
+    const lastPingTime = new Date(lastPing.recorded_at);
     minutesSinceLastPing = (Date.now() - lastPingTime.getTime()) / 60000;
+
+    // Only bother checking weather if the location is reasonably
+    // recent — no point fetching current weather for a 3-day-old
+    // location, since the tourist likely isn't there anymore.
+    if (minutesSinceLastPing < 180) {
+      const weatherData = await getCurrentWeather(lastPing.latitude, lastPing.longitude);
+      weatherRisk = classifyWeatherRisk(weatherData);
+    }
   }
 
   const currentHour = new Date().getHours();
@@ -220,9 +232,10 @@ touristsRouter.get("/:id/risk-score", requireAuth, async (req, res) => {
     openAlerts: result.rows,
     currentHour,
     minutesSinceLastPing,
+    weatherRisk,
   });
 
-  res.json({ touristId: id, score, level, reasons });
+  res.json({ touristId: id, score, level, reasons, weather: weatherRisk });
 });
   /**
  * GET /api/tourists

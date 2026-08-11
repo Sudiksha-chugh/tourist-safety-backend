@@ -5,7 +5,7 @@
  * scoring you can justify in a demo, upgradeable to a trained model
  * later once there's real incident data to learn from.
  */
-export function computeRiskScore({ openAlerts, currentHour, minutesSinceLastPing }) {
+export function computeRiskScore({ openAlerts, currentHour, minutesSinceLastPing, weatherRisk }) {
   // An open SOS alert means "in danger right now" — this should
   // dominate the score, not just nudge it.
   const hasSos = openAlerts.some((a) => a.alert_type === "sos");
@@ -45,7 +45,11 @@ export function computeRiskScore({ openAlerts, currentHour, minutesSinceLastPing
     score += 20;
     reasons.push("Off planned route");
   }
-  
+  // Severe weather at the tourist's current location.
+  if (weatherRisk?.isRisky) {
+    score += 15;
+    reasons.push(`Severe weather: ${weatherRisk.description}`);
+  }
 
   // Time-of-day risk: late night / pre-dawn hours add points.
   // currentHour is 0-23, in the tourist's local time.
