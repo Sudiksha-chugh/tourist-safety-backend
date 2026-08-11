@@ -1,11 +1,11 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import { pool } from "../db/pool.js";
-import { hashDigitalIdRecord } from "../utils/hash.js";
 import { storeHashOnChain, getHashFromChain } from "../blockchain/storeHash.js";
 import { computeRiskScore } from "../utils/riskScore.js";
 import jwt from "jsonwebtoken";
 import { requireAuth } from "../middleware/auth.js";
+import { hashDigitalIdRecord, generateShareToken } from "../utils/hash.js";
 export const touristsRouter = express.Router();
 
 /**
@@ -320,5 +320,74 @@ touristsRouter.post("/login", async (req, res) => {
     message: "Login successful",
     token,
     tourist: { id: tourist.id, fullName: tourist.full_name, email: tourist.email },
+  });
+});
+/**
+ * POST /api/tourists/share-link
+ * Generates (or returns an existing) share token for the logged-in
+ * tourist, and the public URL family can use to check their status.
+ */
+touristsRouter.post("/share-link", requireAuth, async (req, res) => {
+  const touristId = req.touristId;
+
+  const existing = await pool.query(
+    `SELECT share_token FROM tourists WHERE id = $1`,
+    [touristId]
+  );
+
+  let shareToken = existing.rows[0]?.share_token;
+
+  // Only generate a new one if this tourist doesn't already have one —
+  // keeps the same link working every time they check it, rather than
+  // invalidating it on every request.
+  if (!shareToken) {
+    shareToken = generateShareToken();
+    await pool.query(
+      `UPDATE tourists SET share_token = $1 WHERE id = $2`,
+      [shareToken, touristId]
+    );
+  }
+
+  res.json({ shareToken });
+});
+/**
+ * GET /api/tourists/shared/:shareToken
+ * PUBLIC — no login required. Deliberately exposes only the minimum
+ * a worried family member needs: name, safety status, last known
+ * location, and last check-in time. Never passport info, exact risk
+ * reasoning, or anything else sensitive.
+ */
+touristsRouter.get("/shared/:shareToken", async (req, res) => {
+  const { shareToken } = req.params;
+
+  const touristResult = await pool.query(
+    `SELECT id, full_name FROM tourists WHERE share_token = $1`,
+    [shareToken]
+  );
+
+  if (touristResult.rows.length === 0) {
+    return res.status(404).json({ error: "Invalid share link" });
+  }
+
+  const tourist = touristResult.rows[0];
+
+  const lastPingResult = await pool.query(
+    `SELECT latitude, longitude, recorded_at FROM location_pings
+     WHERE tourist_id = $1 ORDER BY recorded_at DESC LIMIT 1`,
+    [tourist.id]
+  );
+
+  const openAlertsResult = await pool.query(
+    `SELECT alert_type FROM alerts WHERE tourist_id = $1 AND status = 'open'`,
+    [tourist.id]
+  );
+
+  const hasOpenSos = openAlertsResult.rows.some((a) => a.alert_type === "sos");
+  const status = hasOpenSos ? "sos" : openAlertsResult.rows.length > 0 ? "alert" : "safe";
+
+  res.json({
+    fullName: tourist.full_name,
+    status, // "safe" | "alert" | "sos" — nothing more specific than this
+    lastKnownLocation: lastPingResult.rows[0] ?? null,
   });
 });

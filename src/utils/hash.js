@@ -27,3 +27,13 @@ export function hashDigitalIdRecord(record) {
 
   return hash;
 }
+/**
+ * Generates a random, unguessable token for share links — different
+ * purpose from our SHA-256 hashing above. This isn't fingerprinting
+ * existing data; it's creating a brand-new random secret, using
+ * crypto.randomBytes (cryptographically secure randomness, unlike
+ * Math.random() which is NOT safe for anything security-related).
+ */
+export function generateShareToken() {
+  return crypto.randomBytes(24).toString("hex"); // 48-character random string
+}
