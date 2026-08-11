@@ -247,11 +247,6 @@ touristsRouter.get("/", async (req, res) => {
     `SELECT id, full_name, email, created_at FROM tourists ORDER BY created_at DESC`
   );
 
-  // For each tourist, compute their live risk score. Doing this in a
-  // loop with individual queries is fine for a handful of tourists in
-  // an MVP; a production version with thousands would want a single
-  // smarter query instead — a "good enough for now" tradeoff, same
-  // spirit as our earlier ones.
   const touristsWithRisk = await Promise.all(
     touristsResult.rows.map(async (tourist) => {
       const alertsResult = await pool.query(
@@ -263,7 +258,7 @@ touristsRouter.get("/", async (req, res) => {
       );
 
       const lastPingResult = await pool.query(
-        `SELECT recorded_at FROM location_pings
+        `SELECT latitude, longitude, recorded_at FROM location_pings
          WHERE tourist_id = $1
          ORDER BY recorded_at DESC
          LIMIT 1`,
@@ -271,15 +266,24 @@ touristsRouter.get("/", async (req, res) => {
       );
 
       let minutesSinceLastPing = null;
+      let weatherRisk = null;
+
       if (lastPingResult.rows.length > 0) {
-        const lastPingTime = new Date(lastPingResult.rows[0].recorded_at);
+        const lastPing = lastPingResult.rows[0];
+        const lastPingTime = new Date(lastPing.recorded_at);
         minutesSinceLastPing = (Date.now() - lastPingTime.getTime()) / 60000;
+
+        if (minutesSinceLastPing < 180) {
+          const weatherData = await getCurrentWeather(lastPing.latitude, lastPing.longitude);
+          weatherRisk = classifyWeatherRisk(weatherData);
+        }
       }
 
       const { score, level } = computeRiskScore({
         openAlerts: alertsResult.rows,
         currentHour: new Date().getHours(),
         minutesSinceLastPing,
+        weatherRisk,
       });
 
       return { ...tourist, riskScore: score, riskLevel: level };
