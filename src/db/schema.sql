@@ -19,7 +19,8 @@ CREATE TABLE tourists (
     emergency_contact_name TEXT,
     emergency_contact_phone TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    share_token TEXT UNIQUE
+    share_token TEXT UNIQUE,
+    consent_given_at TIMESTAMPTZ,
 );
 
 -- ---------------------------------------------------------

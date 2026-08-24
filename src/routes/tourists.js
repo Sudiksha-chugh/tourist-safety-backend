@@ -20,7 +20,7 @@ export const touristsRouter = express.Router();
  * 5. Save both the record and its fingerprint in `digital_ids`.
  */
 touristsRouter.post("/register", async (req, res) => {
-  const {
+    const {
     fullName,
     passportOrIdNumber,
     nationality,
@@ -32,11 +32,17 @@ touristsRouter.post("/register", async (req, res) => {
     tripStartDate,
     tripEndDate,
     itinerarySummary,
+    consentGiven,
   } = req.body;
-
-  if (!fullName || !passportOrIdNumber || !email || !password) {
+    if (!fullName || !passportOrIdNumber || !email || !password) {
     return res.status(400).json({
       error: "fullName, passportOrIdNumber, email, and password are required",
+    });
+  }
+
+  if (!consentGiven) {
+    return res.status(400).json({
+      error: "You must consent to data collection to register",
     });
   }
 
@@ -48,12 +54,11 @@ touristsRouter.post("/register", async (req, res) => {
     await client.query("BEGIN");
 
     const passwordHash = await bcrypt.hash(password, 10);
-
     const touristResult = await client.query(
       `INSERT INTO tourists
         (full_name, passport_or_id_number, nationality, phone_number, email,
-         password_hash, emergency_contact_name, emergency_contact_phone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         password_hash, emergency_contact_name, emergency_contact_phone, consent_given_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id, full_name, email, created_at`,
       [
         fullName,
@@ -64,6 +69,7 @@ touristsRouter.post("/register", async (req, res) => {
         passwordHash,
         emergencyContactName,
         emergencyContactPhone,
+        new Date(), // consent timestamp — recorded at the moment of registration
       ]
     );
     const tourist = touristResult.rows[0];
