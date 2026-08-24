@@ -414,3 +414,52 @@ touristsRouter.get("/shared/:shareToken", async (req, res) => {
     lastKnownLocation: lastPingResult.rows[0] ?? null,
   });
 });
+/**
+ * DELETE /api/tourists/me
+ * Lets a logged-in tourist request deletion of their own data — a
+ * real right under India's DPDP Act 2023. This removes their
+ * location history and alerts, and anonymizes their core profile
+ * rather than fully deleting the row — we keep a minimal record for
+ * legal/audit purposes (e.g. proving a deletion request was honored)
+ * without retaining anything personally identifying.
+ */
+touristsRouter.delete("/me", requireAuth, async (req, res) => {
+  const touristId = req.touristId;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Location history and alerts are the most sensitive ongoing
+    // data — delete these outright.
+    await client.query(`DELETE FROM location_pings WHERE tourist_id = $1`, [touristId]);
+    await client.query(`DELETE FROM planned_routes WHERE tourist_id = $1`, [touristId]);
+    await client.query(`DELETE FROM alerts WHERE tourist_id = $1`, [touristId]);
+
+    // Anonymize the core profile rather than deleting the row entirely —
+    // this preserves the digital_ids/blockchain link (which can't be
+    // un-published from the chain anyway) while removing anything
+    // personally identifying from our own database.
+       await client.query(
+      `UPDATE tourists
+       SET full_name = 'Deleted User',
+           passport_or_id_number = 'DELETED',
+           phone_number = 'DELETED',
+           email = CONCAT('deleted-', id, '@deleted.local'),
+           emergency_contact_name = NULL,
+           emergency_contact_phone = NULL,
+           share_token = NULL
+       WHERE id = $1`,
+      [touristId]
+    );
+
+    await client.query("COMMIT");
+    res.json({ message: "Your data has been deleted" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Data deletion failed:", err);
+    res.status(500).json({ error: "Something went wrong processing your deletion request" });
+  } finally {
+    client.release();
+  }
+});
