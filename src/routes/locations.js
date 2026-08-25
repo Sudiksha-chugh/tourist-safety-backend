@@ -14,7 +14,7 @@ export const locationsRouter = express.Router();
  */
 locationsRouter.post("/ping", requireAuth, async (req, res) => {
   const touristId = req.touristId; // trust the token, not the request body
-  const { latitude, longitude } = req.body;
+  const { latitude, longitude, occurredAt } = req.body;
   if (!touristId || latitude === undefined || longitude === undefined) {
     return res.status(400).json({
       error: "touristId, latitude, and longitude are required",
@@ -22,10 +22,10 @@ locationsRouter.post("/ping", requireAuth, async (req, res) => {
   }
 
   try {
-    await pool.query(
-      `INSERT INTO location_pings (tourist_id, latitude, longitude)
-       VALUES ($1, $2, $3)`,
-      [touristId, latitude, longitude]
+        await pool.query(
+      `INSERT INTO location_pings (tourist_id, latitude, longitude, recorded_at)
+       VALUES ($1, $2, $3, COALESCE($4, now()))`,
+      [touristId, latitude, longitude, occurredAt ?? null]
     );
 
     const zonesResult = await pool.query(
@@ -139,7 +139,7 @@ locationsRouter.patch("/alerts/:id/resolve", async (req, res) => {
  */
 locationsRouter.post("/sos", requireAuth, async (req, res) => {
   const touristId = req.touristId;
-  const { latitude, longitude } = req.body;
+  const { latitude, longitude, occurredAt } = req.body;
   if (!touristId || latitude === undefined || longitude === undefined) {
     return res.status(400).json({
       error: "touristId, latitude, and longitude are required",
@@ -147,10 +147,10 @@ locationsRouter.post("/sos", requireAuth, async (req, res) => {
   }
 
   try {
-    await pool.query(
-      `INSERT INTO location_pings (tourist_id, latitude, longitude)
-       VALUES ($1, $2, $3)`,
-      [touristId, latitude, longitude]
+        await pool.query(
+      `INSERT INTO location_pings (tourist_id, latitude, longitude, recorded_at)
+       VALUES ($1, $2, $3, COALESCE($4, now()))`,
+      [touristId, latitude, longitude, occurredAt ?? null]
     );
 
     const alertResult = await pool.query(
